@@ -1,0 +1,273 @@
+# coding:utf-8
+from sklearn.svm import SVC
+from sklearn.metrics import roc_curve
+from sklearn.datasets import make_blobs
+from sklearn. model_selection import train_test_split
+import matplotlib.pyplot as plt
+from sklearn.model_selection import GridSearchCV
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import Perceptron
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+
+from sklearn.metrics import roc_auc_score
+import numpy as np
+import pandas as pd
+# 显示所有列
+pd.set_option('display.max_columns', None)
+# 显示所有行
+pd.set_option('display.max_rows', None)
+# 设置value的显示长度为100，默认为50
+pd.set_option('max_colwidth', 100)
+# 设置1000列的时候才换行
+pd.set_option('display.width', 1000)
+#读入训练集和测试集
+train=pd.read_csv(r'D:\作业论文\数据挖掘\train.csv')
+test=pd.read_csv(r'D:\作业论文\数据挖掘\test.csv')
+print('训练：',train.shape,'测试：',test.shape)
+#合并数据方便后续的清洗工作
+full=train.append(test,ignore_index=True)
+#print(full.info())#发现年龄缺失了20%，船票价格缺失了1条，登船口缺失2条，船舱号达到78%缺失
+
+#数据预处理：数据清洗
+#查看缺失值并且填充
+full['Age']=full['Age'].fillna(full['Age'].mean())#平均值填充
+full['Fare']=full['Fare'].fillna(full['Fare'].mean())#平均值填充
+full['Embarked']=full['Embarked'].fillna('S')#S登船口最多
+full['Cabin']=full['Cabin'].fillna('NAN')#用NAN表示未知
+print(full.info())#清洗成功
+
+#特征的提取
+#性别
+sex_mapDict={'male':1,'female':0}#用1代表男 0代表女
+full['Sex']=full['Sex'].map(sex_mapDict)
+
+#登船口
+embarkedDf=pd.DataFrame
+embarkedDf=pd.get_dummies(full['Embarked'],prefix='Embarked')
+#pd.get_dummies函数是用来进行one-hot编码的
+#One hot 编码进行数据的分类更准确
+#许多机器学习算法无法直接用于数据分类。数据的类别必须转换成数字
+
+#客舱等级
+pclassDf=pd.DataFrame
+pclassDf=pd.get_dummies(full['Pclass'],prefix='Pclass')
+
+#姓名头衔
+def getTitle(name):
+    str1=name.split(',')[1]
+    str2=name.split(',')[0]
+    str3=str2.strip()
+    return str3
+titleDf=pd.DataFrame()
+titleDf['Title']=full['Name'].map(getTitle)
+title_mapDict = {
+                    "Capt":       "Officer",
+                    "Col":        "Officer",
+                    "Major":      "Officer",
+                    "Jonkheer":   "Royalty",
+                    "Don":        "Royalty",
+                    "Sir" :       "Royalty",
+                    "Dr":         "Officer",
+                    "Rev":        "Officer",
+                    "the Countess":"Royalty",
+                    "Dona":       "Royalty",
+                    "Mme":        "Mrs",
+                    "Mlle":       "Miss",
+                    "Ms":         "Mrs",
+                    "Mr" :        "Mr",
+                    "Mrs" :       "Mrs",
+                    "Miss" :      "Miss",
+                    "Master" :    "Master",
+                    "Lady" :      "Royalty"
+                    }
+titleDf['Title']=titleDf['Title'].map(title_mapDict)
+titleDf=pd.get_dummies(titleDf['Title'])
+
+#客舱类别
+cabinDf=pd.DataFrame()
+full['Cabin']=full['Cabin'].map(lambda c:c[0])
+cabinDf=pd.get_dummies(full['Cabin'],prefix='Cabin')
+
+#家庭人数
+familyDf=pd.DataFrame()#single=1个人，2《small《4，5《large
+familyDf['familySize']=full['Parch']+full['SibSp']+1#同代直系亲属+不同代直系亲属+乘客自己
+familyDf['family_Small']=familyDf['familySize'].map(lambda s:1 if s == 1 else 0)
+familyDf['family_Median']=familyDf['familySize'].map(lambda s:1 if 2<= s <=4 else 0)
+familyDf['family_Large']=familyDf['familySize'].map(lambda s:1 if s >= 5 else 0)
+
+#添加与删除
+full=pd.concat([full,embarkedDf],axis=1)
+full=pd.concat([full,pclassDf],axis=1)
+full=pd.concat([full,titleDf],axis=1)
+full=pd.concat([full,cabinDf],axis=1)
+full=pd.concat([full,familyDf],axis=1)
+full.drop('Embarked',axis=1,inplace=True)
+full.drop('Pclass',axis=1,inplace=True)
+full.drop('Name',axis=1,inplace=True)
+full.drop('Cabin',axis=1,inplace=True)
+full.drop('Parch',axis=1,inplace=True)
+full.drop('SibSp',axis=1,inplace=True)
+#让相关系数降序排列
+corrDf=full.corr()
+corr_Sur=corrDf['Survived'].sort_values(ascending=False)
+corr_Sur.drop_duplicates()#删除相同的记录
+print(corr_Sur)
+#选择前几个特征
+full_X = pd.concat( [titleDf,
+                     pclassDf,
+                     familyDf,
+                     full['Fare'],
+                     cabinDf,
+                     embarkedDf,
+                     full['Sex']
+                    ] , axis=1 )
+#print(full_X.head())
+#建立数据集和测试集
+datarow=891
+data_X=full_X.loc[0:datarow-1,:]#原始数据特征
+data_Y=full.loc[0:datarow-1,'Survived']#原始数据标签
+pred_X=full_X.loc[datarow,:]
+#print('预测数据集有多少行：',pred_X)
+
+
+#从原始数据集（source）中拆分出训练数据集（用于模型训练train），测试数据集（用于模型评估test）
+#train_test_split是交叉验证中常用的函数，功能是从样本中随机的按比例选取train data和test data
+train_X,test_X,train_Y,test_Y=train_test_split(data_X,data_Y,train_size=0.8)
+# print ('原始数据集特征：',data_X.shape,
+#        '训练数据集特征：',train_X.shape ,
+#       '测试数据集特征：',test_X.shape)
+
+#算法1——逻辑回归
+
+print(train_X)
+solver = ['liblinear','lbfgs','newton-cg','sag']
+penalty = ['l1','l2']
+for i in range(len(penalty)):
+    model = LogisticRegression(max_iter=1000000,penalty='l1',solver='liblinear')
+    imag1 = model.fit(train_X, train_Y)
+    # 使用机器学习模型，对预测数据集中的生存情况进行预测
+    pred_Y1 = imag1.predict_proba(test_X)
+    score1 = round(imag1.score(train_X, train_Y) * 100, 2)
+    score12 = round(roc_auc_score(test_Y, pred_Y1[:, 1]) * 100, 2)
+    print('准确率：', score1, '   AUC:', score12)
+    fpr1, tpr1, thresholds1 = roc_curve(test_Y, imag1.decision_function(test_X))
+    plt.plot(fpr1, tpr1, label='LR_ROC')
+    plt.xlabel('FPR1')
+    plt.ylabel('TPR1')
+    plt.show()
+
+#算法2——支持向量机模型
+candidate=[0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100]
+combination=[(C, gamma) for C in candidate for gamma in candidate]
+parameters2={'C': candidate, 'gamma': candidate}
+svc=SVC()
+clf=GridSearchCV(svc, parameters2, n_jobs=-1)
+imag2=clf.fit(train_X, train_Y)
+pred_Y2 = imag2.predict(test_X)
+score2 = round(imag2.score(train_X, train_Y) * 100, 2)
+score22=round(roc_auc_score(test_Y, pred_Y2) * 100, 2)
+print('准确率：',score2,'   AUC:',score22)
+fpr2, tpr2, thresholds2 = roc_curve(test_Y, imag2.decision_function(test_X))
+plt.plot(fpr2, tpr2, label='SVC_ROC')
+plt.xlabel('FPR2')
+plt.ylabel('TPR2')
+plt.show()
+#
+# #算法3——随机森林
+random_forest = RandomForestClassifier()
+parameters3 ={'n_estimators':range(10,20,1)}
+imag3 = GridSearchCV(random_forest, parameters3, cv=4)
+imag3.fit(train_X, train_Y)
+Y_pred3 = imag3.predict_proba(test_X)
+score3 = round(imag3.score(train_X, train_Y) * 100, 2)
+score32=round(roc_auc_score(test_Y, Y_pred3[:,1]) * 100, 2)
+print('准确率：',score3,'   AUC:',score32)
+fpr3, tpr3, thresholds3 = roc_curve(test_Y, Y_pred3[:,1])
+plt.plot(fpr3, tpr3, label='RFC_ROC')
+plt.xlabel('FPR3')
+plt.ylabel('TPR3')
+plt.show()
+#
+# #算法4——决策树
+parameters4 = [{'criterion':['gini'],'max_depth':[30,50,60,100],'min_samples_leaf':[2,3,5,10],'min_impurity_decrease':[0.1,0.2,0.5]},
+         {'criterion':['gini','entropy']},
+         {'max_depth': [30,60,100], 'min_impurity_decrease':[0.1,0.2,0.5]}]
+grid = GridSearchCV(DecisionTreeClassifier(),parameters4,cv=6)
+imag4=grid.fit(train_X, train_Y)
+pred_Y4 = imag4.predict_proba(test_X)
+score4 = round(imag4.score(train_X, train_Y) * 100, 2)
+score42=round(roc_auc_score(test_Y, pred_Y4[:,1]) * 100, 2)
+print('准确率：',score4,'   AUC:',score42)
+fpr4, tpr4, thresholds4 = roc_curve(test_Y, pred_Y4[:,1])
+plt.plot(fpr4, tpr4, label='DTC_ROC')
+plt.xlabel('FPR4')
+plt.ylabel('TPR4')
+plt.show()
+#
+# #算法5——K近邻学习
+KNN = KNeighborsClassifier()
+parameters5 = [
+    {
+        'weights':['uniform'],
+        'n_neighbors':[i for i in range(1,11)]
+    },
+    {
+        'weights':['distance'],
+        'n_neighbors':[i for i in range(1,11)],
+        'p':[i for i in range(1,6)]
+    }
+]
+grid_search = GridSearchCV(KNN,parameters5,n_jobs=-1,verbose=0)
+imag5 =grid_search.fit(train_X, train_Y)
+pred_Y5 = imag5.predict_proba(test_X)
+score5 = round(imag5.score(train_X, train_Y) * 100, 2)
+score52=round(roc_auc_score(test_Y, pred_Y5[:,1]) * 100, 2)
+print('准确率：',score5,'   AUC:',score52)
+fpr5, tpr5, thresholds5 = roc_curve(test_Y, pred_Y5[:,1])
+plt.plot(fpr5, tpr5, label='KNN_ROC')
+plt.xlabel('FPR5')
+plt.ylabel('TPR5')
+plt.show()
+#
+# #算法6——感知机
+perceptron = Perceptron()
+parameters6 =[
+    {'n_iter_no_change':[3,10,30],}
+]
+grid = GridSearchCV(perceptron,parameters6,cv=6)
+imag6 = grid.fit(train_X, train_Y)
+pred_Y6 = imag6.predict(test_X)
+score6 = round(imag6.score(train_X, train_Y) * 100, 2)
+score62=round(roc_auc_score(test_Y, pred_Y6) * 100, 2)
+print('准确率：',score6,'   AUC:',score62)
+fpr6, tpr6, thresholds6 = roc_curve(test_Y, imag6.decision_function(test_X))
+plt.plot(fpr6, tpr6, label='Perc_ROC')
+plt.xlabel('FPR6')
+plt.ylabel('TPR6')
+plt.show()
+#
+# #算法7——贝叶斯分类器
+gaussian = GaussianNB()
+parameters7 =[
+    {'priors':[[0.68,0.32],[0.7,0.3],[0.8,0.2]],'var_smoothing':[1e-9,1e-8,1e-7]}
+]
+grid = GridSearchCV(gaussian,parameters7,cv=6)
+imag7 = grid.fit(train_X, train_Y)
+pred_Y7 = imag7.predict_proba(test_X)
+score7 = round(imag7.score(train_X, train_Y) * 100, 2)
+score72=round(roc_auc_score(test_Y, pred_Y7[:,1]) * 100, 2)
+print('准确率：',score7,'   AUC:',score72)
+fpr7, tpr7, thresholds7 = roc_curve(test_Y, pred_Y7[:,1])
+plt.plot(fpr7, tpr7, label='Bayes_ROC')
+plt.xlabel('FPR7')
+plt.ylabel('TPR7')
+plt.show()
+#
+#
+
